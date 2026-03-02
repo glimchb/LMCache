@@ -234,6 +234,11 @@ _CONFIG_DEFINITIONS: dict[str, dict[str, Any]] = {
         "default": None,
         "env_converter": int,
     },
+    "use_hipfile": {
+        "type": bool,
+        "default": False,
+        "env_converter": lambda x: x.lower() in ("true", "1", "yes"),
+    },
     # Other configurations
     # (Deprecated) The url of the actual remote lmcache instance for auditing.
     # Please use extra_config['audit_actual_remote_url'] instead.

@@ -25,6 +25,7 @@ from lmcache.utils import CacheEngineKey, DiskCacheMetadata, _lmcache_nvtx_annot
 from lmcache.v1.config import LMCacheEngineConfig
 from lmcache.v1.memory_management import (
     CuFileMemoryAllocator,
+    HipFileMemoryAllocator,
     MemoryFormat,
     MemoryObj,
 )
@@ -205,13 +206,20 @@ class GdsBackend(AllocatorBackendInterface):
         )
 
         self.use_cufile = True
+        self.use_hipfile = False
         use_cufile_from_config = False
+        use_hipfile_from_config = False
 
         if config.extra_config is not None:
             use_cufile = get_extra_config_bool("use_cufile", config)
             if use_cufile is not None:
                 self.use_cufile = use_cufile
                 use_cufile_from_config = True
+
+            use_hipfile = get_extra_config_bool("use_hipfile", config)
+            if use_hipfile is not None:
+                self.use_hipfile = use_hipfile
+                use_hipfile_from_config = True
 
         self.data_suffix = _DATA_FILE_SUFFIX
         self.use_thread_pool = False
@@ -221,14 +229,15 @@ class GdsBackend(AllocatorBackendInterface):
             # TODO: we can replace the auto-detection of unsupported cufile
             # file systems by doing a small cufile API test on them. If as
             # read/write test fails, we can fallback to not using cufile APIs.
-            if use_cufile_from_config:
-                logger.warning("No automatic disabling of cufile usage due to fstype")
+            if use_cufile_from_config or use_hipfile_from_config:
+                logger.warning("No automatic disabling of cufile/hipfile usage due to fstype")
             else:
-                logger.info("Automatic disabling of cufile usage due to fstype")
+                logger.info("Automatic disabling of cufile/hipfile usage due to fstype")
                 self.use_cufile = False
+                self.use_hipfile = False
         elif self.fstype == "wekafs":
-            logger.info("Weka filesystem detected, cufile usage is enforced")
-            assert self.use_cufile
+            logger.info("Weka filesystem detected, cufile/hipfile usage is enforced")
+            assert self.use_cufile or self.use_hipfile, "Weka filesystem requires either cufile or hipfile to be enabled"
             self.data_suffix = _WEKA_DATA_FILE_SUFFIX
             self.use_thread_pool = True
 
@@ -252,8 +261,18 @@ class GdsBackend(AllocatorBackendInterface):
             self.cudart = None
             self.cufile = cufile
             self._cufile_driver = self.cufile.CuFileDriver()
+        elif self.use_hipfile:
+            logger.info("Using hipfile")
+            # HACK: hipfile import may be buggy on some hardware
+            # (e.g., without GPUDirect), so it's temporarily put here.
+            # Third Party
+            import hipfile
+
+            self.cudart = None
+            self.cufile = hipfile  # Reuse the same attribute name for compatibility
+            self._cufile_driver = self.cufile.Driver()
         else:
-            logger.info("Not using cufile")
+            logger.info("Not using cufile or hipfile")
             self.cufile = None
             self.cudart = ctypes.CDLL("libcudart.so")
 
@@ -871,8 +890,11 @@ class GdsBackend(AllocatorBackendInterface):
 
     def initialize_allocator(
         self, config: LMCacheEngineConfig, metadata: LMCacheMetadata
-    ) -> CuFileMemoryAllocator:
+    ) -> Union[CuFileMemoryAllocator, HipFileMemoryAllocator]:
         assert config.cufile_buffer_size is not None
+        # Use HipFileMemoryAllocator if hipfile is enabled in the backend
+        if self.use_hipfile:
+            return HipFileMemoryAllocator(config.cufile_buffer_size * 1024**2)
         return CuFileMemoryAllocator(config.cufile_buffer_size * 1024**2)
 
     def allocate(
