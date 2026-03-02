@@ -5,7 +5,8 @@ aiohttp
 awscrt
 cufile-python
 fastapi
-hipfile-python
+#hipfile-python
+hipfile
 httpx
 msgspec
 # if nixl decides to support >=3.13 in the future, we can remove this constraint

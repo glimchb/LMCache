@@ -192,7 +192,6 @@ class GdsBackend(AllocatorBackendInterface):
 
         self.config = config
         self.loop = loop
-        self.memory_allocator = self.initialize_allocator(config, metadata)
         self.dst_device = dst_device
 
         assert config.gds_path is not None, "Need to specify gds_path for GdsBackend"
@@ -205,6 +204,7 @@ class GdsBackend(AllocatorBackendInterface):
             f"GDS backend using fstype '{self.fstype}' on path '{self.gds_path}'"
         )
 
+        # Initialize use_cufile and use_hipfile before creating the memory allocator
         self.use_cufile = True
         self.use_hipfile = False
         use_cufile_from_config = False
@@ -220,6 +220,9 @@ class GdsBackend(AllocatorBackendInterface):
             if use_hipfile is not None:
                 self.use_hipfile = use_hipfile
                 use_hipfile_from_config = True
+
+        # Now initialize the memory allocator after use_hipfile is set
+        self.memory_allocator = self.initialize_allocator(config, metadata)
 
         self.data_suffix = _DATA_FILE_SUFFIX
         self.use_thread_pool = False
@@ -270,7 +273,7 @@ class GdsBackend(AllocatorBackendInterface):
 
             self.cudart = None
             self.cufile = hipfile  # Reuse the same attribute name for compatibility
-            self._cufile_driver = self.cufile.Driver()
+            self._cufile_driver = self.cufile.CuFileDriver()
         else:
             logger.info("Not using cufile or hipfile")
             self.cufile = None
@@ -893,9 +896,8 @@ class GdsBackend(AllocatorBackendInterface):
     ) -> Union[CuFileMemoryAllocator, HipFileMemoryAllocator]:
         assert config.cufile_buffer_size is not None
         # Use HipFileMemoryAllocator if hipfile is enabled in the backend
-        if self.use_hipfile:
-            return HipFileMemoryAllocator(config.cufile_buffer_size * 1024**2)
-        return CuFileMemoryAllocator(config.cufile_buffer_size * 1024**2)
+        allocator_cls = HipFileMemoryAllocator if self.use_hipfile else CuFileMemoryAllocator
+        return allocator_cls(config.cufile_buffer_size * 1024**2)
 
     def allocate(
         self,

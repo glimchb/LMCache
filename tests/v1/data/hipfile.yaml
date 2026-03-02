@@ -4,4 +4,5 @@ gds_path: "/tmp/hipfile/test-cache"
 local_cpu: False
 save_decode_cache: True
 cufile_buffer_size: 128
-use_hipfile: true  # This enables HipFileMemoryAllocator instead of CuFileMemoryAllocator
+extra_config:
+  use_hipfile: true  # This enables HipFileMemoryAllocator instead of CuFileMemoryAllocator
