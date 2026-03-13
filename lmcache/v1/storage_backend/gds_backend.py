@@ -683,12 +683,12 @@ class GdsBackend(AllocatorBackendInterface):
                 with self.hot_lock:
                     self.hot_cache.pop(key)
             else:
-                # TODO: we should probably count errors and
-                # remove the entry if it's a persistent problem.
                 logger.error(
                     f"Error loading {path}: got only {ret} bytes "
-                    f"out of {memory_obj.get_size()}, ignoring"
+                    f"out of {memory_obj.get_size()}, removing entry"
                 )
+                with self.hot_lock:
+                    self.hot_cache.pop(key, None)
             memory_obj.ref_count_down()
             return None
         return memory_obj
@@ -772,6 +772,8 @@ class GdsBackend(AllocatorBackendInterface):
         base_pointer: int,
         device_offset: int,
     ):
+        # Ensure HIP device context is set on this thread
+        torch.cuda.set_device(self.dst_device)
         if base_pointer is None:
             addr = ctypes.c_void_p(kv_chunk.data_ptr())
             dev_offset = 0
@@ -792,9 +794,12 @@ class GdsBackend(AllocatorBackendInterface):
                 with self.cufile.CuFile(
                     tmp_path, "r+", use_direct_io=self.use_direct_io
                 ) as f:
-                    f.write(
+                    ret = f.write(
                         addr, kv_chunk.nbytes, file_offset=offset, dev_offset=dev_offset
                     )
+                    if ret != kv_chunk.nbytes:
+                        raise RuntimeError(
+                            f"hipFileWrite failed: wrote {ret} bytes, expected {kv_chunk.nbytes}")
             elif self.cudart:
                 # mmap the file
                 fd = os.open(tmp_path, os.O_RDWR)
@@ -835,6 +840,8 @@ class GdsBackend(AllocatorBackendInterface):
         size_in_bytes: int,
         dev_offset: int,
     ) -> int:
+        # Ensure HIP device context is set on this thread
+        torch.cuda.set_device(self.dst_device)
         # Read data from disk into a GPU buffer
         if self.cufile:
             with self.cufile.CuFile(
