@@ -225,7 +225,6 @@ class GdsBackend(AllocatorBackendInterface):
         self.memory_allocator = self.initialize_allocator(config, metadata)
 
         self.data_suffix = _DATA_FILE_SUFFIX
-        self.use_thread_pool = False
         self._thread_pool = None
 
         if self.fstype in ["tmpfs", "overlayfs"]:
@@ -242,7 +241,9 @@ class GdsBackend(AllocatorBackendInterface):
             logger.info("Weka filesystem detected, cufile/hipfile usage is enforced")
             assert self.use_cufile or self.use_hipfile, "Weka filesystem requires either cufile or hipfile to be enabled"
             self.data_suffix = _WEKA_DATA_FILE_SUFFIX
-            self.use_thread_pool = True
+
+        # Always enable the thread pool for parallel I/O
+        self.use_thread_pool = self.use_cufile or self.use_hipfile
 
         if self.use_thread_pool:
             thread_count = _DEFAULT_THREAD_COUNT
@@ -251,7 +252,7 @@ class GdsBackend(AllocatorBackendInterface):
                     "gds_io_threads", _DEFAULT_THREAD_COUNT
                 )
             self._thread_pool = ThreadPoolExecutor(
-                max_workers=thread_count, thread_name_prefix="weka-gds-io"
+                max_workers=thread_count, thread_name_prefix="gds-io"
             )
 
         if self.use_cufile:
